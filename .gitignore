@@ -1,0 +1,20 @@
+# Vivado generated project (regenerate from refresh_sources.tcl)
+vivado_proj/
+
+# Vivado / xvlog / xsim logs and runtime junk
+*.jou
+*.log
+*.pb
+*.wdb
+*.str
+.Xil/
+xsim.dir/
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Tool/AI scratch
+.cxl/
