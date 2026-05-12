@@ -1,0 +1,11 @@
+
+build/core_basic.elf:     file format elf32-littleriscv
+
+
+Disassembly of section .text:
+
+00000000 <_start>:
+   0:	00500093          	li	ra,5
+   4:	00700113          	li	sp,7
+   8:	002081b3          	add	gp,ra,sp
+   c:	00100073          	ebreak

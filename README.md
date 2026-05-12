@@ -1,539 +1,793 @@
 # RV32I CPU Project
 
-This repository contains a from-scratch RISC-V RV32I CPU implementation written in **SystemVerilog**. The project is developed simulation-first using **Vivado/XSim**, with the long-term goal of running on a Xilinx/AMD FPGA.
+This repository contains a from-scratch **RV32I RISC-V CPU core** written in **SystemVerilog** and tested with **Vivado/XSim**.
 
-Current verified blocks:
-
-- `src/alu.sv` — arithmetic/logic unit
-- `src/regfile.sv` — RV32I integer register file
-
-Current testbenches:
-
-- `sim/tb_alu.sv`
-- `sim/tb_regfile.sv`
+The project is currently **simulation-first**. It does not yet include an FPGA top module, external SRAM controller, UART, or Cmod A7 constraints. The current goal is to build and verify the CPU core in simulation before moving to FPGA hardware.
 
 ---
 
-## 1. Requirements
+## Current status
+
+The core currently supports a functional subset intended to cover **RV32I base integer behavior**:
+
+- ALU operations
+- Register file with hardwired `x0`
+- Immediate generation for I/S/B/U/J/SHAMT formats
+- RV32I decoder/control unit
+- Branch comparator
+- Program counter / next-PC logic
+- Instruction fetch memory unit (`fiu`)
+- Load/store unit (`lsu`)
+- Integrated single-cycle `rv32_core`
+- Assembly-to-hex program loading using `$readmemh`
+- Unit tests, smoke test, visual debug testbench, and functional regression testbench
+
+The project intentionally separates:
+
+```text
+src/    synthesizable-ish design modules
+sim/    simulation-only testbenches
+asm/    RISC-V assembly programs
+programs/ generated .hex memory images
+scripts/ build/conversion scripts
+build/  generated assembler/linker outputs
+```
+
+---
+
+## Requirements
 
 Install:
 
-- AMD/Xilinx **Vivado ML Standard**
-- Device support for your target FPGA family
-- A text editor, such as VS Code
-- Git, if cloning from a repository
+- AMD/Xilinx Vivado with XSim
+- A Linux shell
+- Python 3
+- RISC-V bare-metal toolchain
 
-Set the FPGA part according to your board.
-
-Example for a Digilent Cmod A7-35T:
-
-```text
-xc7a35tcpg236-1
-```
-
-If you are using a different FPGA board, replace that part number with your board's FPGA part.
-
-The physical FPGA board is not required for the current stage. The project can be developed and tested in simulation.
-
----
-
-## 2. Clone and enter the repository
-
-Clone the repository and move into it:
+On Ubuntu/Debian:
 
 ```bash
-git clone <REPOSITORY_URL>
-cd <REPO_ROOT>
+sudo apt update
+sudo apt install gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf python3
 ```
 
-In the rest of this README:
+Verify:
 
-```text
-<REPO_ROOT>
+```bash
+riscv64-unknown-elf-gcc --version
+riscv64-unknown-elf-objcopy --version
+riscv64-unknown-elf-objdump --version
+python3 --version
 ```
 
-means the root directory of the cloned repository.
+Vivado is required because the project targets Xilinx/AMD FPGA tooling and currently uses XSim for simulation.
 
 ---
 
-## 3. Repository layout
-
-The repository is organized like this:
+## Repository layout
 
 ```text
 <REPO_ROOT>/
   README.md
   refresh_sources.tcl
-  run_tests.tcl
 
   src/
     alu.sv
     regfile.sv
+    imm_gen.sv
+    decoder.sv
+    branch_comp.sv
+    pc_unit.sv
+    fiu.sv
+    lsu.sv
+    rv32_core.sv
 
   sim/
     tb_alu.sv
     tb_regfile.sv
+    tb_imm_gen.sv
+    tb_decoder.sv
+    tb_branch_comp.sv
+    tb_pc_unit.sv
+    tb_fiu.sv
+    tb_lsu.sv
+    tb_rv32_core.sv
+    tb_rv32_core_debug.sv
+    tb_rv32_core_regression.sv
 
-  vivado_proj/
-    <VIVADO_PROJECT_NAME>/
-      <VIVADO_PROJECT_NAME>.xpr
+  asm/
+    core_basic.S
+
+  scripts/
+    asm_to_hex.sh
+    bin_to_hex.py
+    linker.ld
+
+  programs/
+    core_basic.hex
+
+  build/
+    generated .o, .elf, .bin, .dump files
 ```
 
-Conventions:
-
-```text
-src/  = synthesizable hardware modules
-sim/  = simulation-only testbenches
-```
-
-Do not place testbenches in `src/`. Do not place design modules only in `sim/`.
+Generated Vivado project folders such as `<PROJECT_NAME>.sim/`, `<PROJECT_NAME>.cache/`, `.cxl/`, `.Xil/`, and waveform databases are not source files. They can become large and should not be treated as handwritten project logic.
 
 ---
 
-## 4. Create or open the Vivado project
+## Hardware modules
 
-### Option A: Open an existing Vivado project
+### `src/alu.sv`
 
-If the repository already includes a Vivado project file, open:
-
-```text
-<REPO_ROOT>/vivado_proj/<VIVADO_PROJECT_NAME>/<VIVADO_PROJECT_NAME>.xpr
-```
-
-Then, in the Vivado Tcl Console, move to the repository root:
-
-```tcl
-cd <REPO_ROOT>
-```
-
-For example:
-
-```tcl
-cd /path/to/cloned/repo
-```
-
-Then refresh the source files:
-
-```tcl
-source refresh_sources.tcl
-```
-
-### Option B: Create a new Vivado project
-
-If the Vivado project is not included, create it from scratch:
-
-1. Open Vivado.
-2. Click **Create Project**.
-3. Choose a project name, for example `<VIVADO_PROJECT_NAME>`.
-4. Choose project location:
+Combinational arithmetic/logic unit. Supports internal ALU operations such as:
 
 ```text
-<REPO_ROOT>/vivado_proj/
+ADD, SUB, AND, OR, XOR, SLL, SRL, SRA, SLT, SLTU
 ```
 
-5. Select **RTL Project**.
-6. Select **Do not specify sources at this time**.
-7. Choose your FPGA part.
+The ALU input `op` is **not** the RISC-V opcode. It is an internal control signal generated by the decoder.
 
-Example for Cmod A7-35T:
+### `src/regfile.sv`
+
+RV32I integer register file:
 
 ```text
-xc7a35tcpg236-1
+x0  hardwired to zero
+x1-x31 writable registers
+2 combinational read ports
+1 synchronous write port
 ```
 
-After the project opens, run:
+Writes occur on the positive clock edge. Reads are combinational.
 
-```tcl
-cd <REPO_ROOT>
-source refresh_sources.tcl
+### `src/imm_gen.sv`
+
+Immediate generator. Supports:
+
+```text
+IMM_I      I-type immediates
+IMM_S      store immediates
+IMM_B      branch offsets
+IMM_U      upper immediates
+IMM_J      jump offsets
+IMM_SHAMT  shift-immediate amounts
+```
+
+### `src/decoder.sv`
+
+Decodes a 32-bit RV32I instruction into control signals:
+
+```text
+rs1_addr, rs2_addr, rd_addr
+alu_op, imm_sel
+op_a_sel, op_b_sel
+reg_write, wb_sel
+mem_read, mem_write, mem_size, mem_unsigned
+branch, branch_op
+jump, jalr
+fence, ecall, ebreak
+illegal_instr
+```
+
+The decoder does not execute instructions. It only decides how the rest of the datapath should behave.
+
+### `src/branch_comp.sv`
+
+Combinational branch comparator. Decides whether a conditional branch is taken:
+
+```text
+BEQ, BNE, BLT, BGE, BLTU, BGEU
+```
+
+### `src/pc_unit.sv`
+
+Program counter and next-PC logic:
+
+```text
+normal instruction: pc_next = pc + 4
+branch taken:       pc_next = pc + imm
+JAL:                pc_next = pc + imm
+JALR:               pc_next = (rs1 + imm) & ~1
+stall:              hold current pc
+```
+
+### `src/fiu.sv`
+
+Instruction fetch unit. It is currently a simple word-addressed instruction memory for simulation.
+
+It supports optional program loading:
+
+```systemverilog
+parameter string INIT_FILE = ""
+```
+
+If `INIT_FILE` is nonempty, it loads instruction memory using:
+
+```systemverilog
+$readmemh(INIT_FILE, mem);
+```
+
+### `src/lsu.sv`
+
+Load/store unit and simple data memory. Supports:
+
+```text
+LB, LH, LW, LBU, LHU
+SB, SH, SW
+signed/unsigned load extension
+byte/halfword/word access sizes
+misalignment detection
+```
+
+It also supports optional data memory initialization with `$readmemh`.
+
+### `src/rv32_core.sv`
+
+Integrated single-cycle core connecting:
+
+```text
+pc_unit → fiu → decoder → regfile → imm_gen → alu / branch_comp / lsu → writeback
+```
+
+The core exposes:
+
+```systemverilog
+output logic [31:0] pc;
+output logic [31:0] instr;
+output logic        halted;
+output logic        trap;
+```
+
+`ebreak`, `ecall`, illegal instructions, instruction misalignment, and data access misalignment currently halt/trap the core.
+
+---
+
+## Assembly-to-hex program flow
+
+The CPU does not execute assembly text. It executes 32-bit machine-code instruction words.
+
+The project uses this flow:
+
+```text
+asm/core_basic.S
+   ↓ RISC-V assembler/linker
+build/core_basic.elf
+   ↓ objcopy
+build/core_basic.bin
+   ↓ scripts/bin_to_hex.py
+programs/core_basic.hex
+   ↓ $readmemh
+fiu.mem[]
+```
+
+### Assembly source
+
+Example:
+
+```asm
+.section .text
+.global _start
+
+_start:
+    addi x1, x0, 5
+    addi x2, x0, 7
+    add  x3, x1, x2
+    ebreak
+```
+
+### Build a program
+
+From the repository root:
+
+```bash
+./scripts/asm_to_hex.sh core_basic
+```
+
+This reads:
+
+```text
+asm/core_basic.S
+```
+
+and generates:
+
+```text
+build/core_basic.elf
+build/core_basic.bin
+build/core_basic.dump
+programs/core_basic.hex
+```
+
+Inspect the generated hex:
+
+```bash
+cat programs/core_basic.hex
+```
+
+Inspect the disassembly:
+
+```bash
+cat build/core_basic.dump
+```
+
+For the small program above, the hex should look like:
+
+```text
+00500093
+00700113
+002081b3
+00100073
 ```
 
 ---
 
-## 5. Refreshing source files
+## Important: editing assembly is not enough
 
-Vivado does not automatically watch `src/` and `sim/` like a normal programming IDE. When new SystemVerilog files are added, refresh the Vivado file sets using:
-
-```tcl
-source refresh_sources.tcl
-```
-
-The script should contain:
-
-```tcl
-add_files -fileset sources_1 [glob -nocomplain ./src/*.sv ./src/*.v]
-add_files -fileset sim_1    [glob -nocomplain ./sim/*.sv ./sim/*.v]
-
-update_compile_order -fileset sources_1
-update_compile_order -fileset sim_1
-```
-
-Run it from `<REPO_ROOT>`.
-
-If Vivado prints warnings like this:
+If you edit:
 
 ```text
-File '...' cannot be added to the project because it already exists in the project, skipping this file
+asm/core_basic.S
 ```
 
-that is harmless. It means the file is already known to Vivado.
+then you must rebuild:
+
+```bash
+./scripts/asm_to_hex.sh core_basic
+```
+
+Vivado does not assemble RISC-V assembly files. Vivado only sees the generated `.hex` file through `$readmemh`.
+
+After changing a `.hex` file, restart the simulation so `$readmemh` runs again:
+
+```tcl
+close_sim
+launch_simulation -simset sim_1 -mode behavioral
+run all
+```
+
+If you changed SystemVerilog, refresh/recompile sources too.
 
 ---
 
-## 6. Running the tests
+## Refreshing Vivado sources
+
+Vivado does not automatically watch folders like a normal software IDE.
 
 From the Vivado Tcl Console:
 
 ```tcl
 cd <REPO_ROOT>
-source run_tests.tcl
+source refresh_sources.tcl
 ```
 
-Expected success output includes:
+The provided script adds files from:
 
 ```text
-All ALU tests passed.
-All register file tests passed.
-All requested testbenches completed.
+src/*.sv
+sim/*.sv
 ```
 
-If the output contains any of the following, a test failed or hung:
+and updates compile order.
+
+If Vivado opens a stale copy of a file, check the full path. You want Vivado to use files under:
 
 ```text
-FAIL
-Fatal
-TIMEOUT
+<REPO_ROOT>/src/
+<REPO_ROOT>/sim/
 ```
 
-Fix the first failing test before continuing.
+not copied files under a Vivado-generated project directory.
+
+If needed, remove stale files from the project and re-add the real files.
 
 ---
 
-## 7. Test runner script
+## Simulation philosophy
 
-The test runner should use a bounded runtime. Avoid unbounded `run all`, because many testbenches include clocks that run forever.
+Do **not** run every `tb_*.sv` automatically in one big wildcard script anymore.
 
-Recommended `run_tests.tcl`:
+That was useful early in the project, but it is no longer the right workflow because:
 
-```tcl
-source refresh_sources.tcl
+- some testbenches are small unit tests,
+- some are full-core tests,
+- the regression test is intentionally long,
+- the debug testbench is meant for human inspection,
+- Vivado may still compile every file in `sim_1`, which can make debug runs unnecessarily slow.
 
-proc run_tb {tb_name} {
-    puts "========================================"
-    puts "Running testbench: $tb_name"
-    puts "========================================"
+The recommended workflow is now:
 
-    if {[current_sim] ne ""} {
-        close_sim
-    }
-
-    set_property top $tb_name [get_filesets sim_1]
-    update_compile_order -fileset sim_1
-
-    launch_simulation -simset sim_1 -mode behavioral
-
-    # Bounded runtime. Each testbench should finish well before this.
-    run 1us
-
-    close_sim
-}
-
-run_tb tb_alu
-run_tb tb_regfile
-
-puts "========================================"
-puts "All requested testbenches completed."
-puts "========================================"
+```text
+Choose one testbench intentionally.
+Set it as the simulation top.
+Run only that test.
 ```
 
-When adding a new testbench, add one line near the bottom:
+---
+
+## Running one specific testbench
+
+In Vivado Tcl Console:
 
 ```tcl
-run_tb tb_<MODULE_NAME>
+cd <REPO_ROOT>
+source refresh_sources.tcl
+set_property source_mgmt_mode None [current_project]
+set_property top <TESTBENCH_NAME> [get_filesets sim_1]
+update_compile_order -fileset sources_1
+update_compile_order -fileset sim_1
+launch_simulation -simset sim_1 -mode behavioral
+```
+
+Then run for an appropriate duration:
+
+```tcl
+run all
+```
+
+or:
+
+```tcl
+run 1us
+```
+
+Use `run all` only for testbenches that call `$finish` naturally. Use a bounded run for clocked tests if you are unsure.
+
+---
+
+## Unit testbenches
+
+These test individual modules:
+
+```text
+tb_alu
+tb_regfile
+tb_imm_gen
+tb_decoder
+tb_branch_comp
+tb_pc_unit
+tb_fiu
+tb_lsu
 ```
 
 Example:
 
 ```tcl
-run_tb tb_imm_gen
+set_property top tb_alu [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run all
+```
+
+Expected style of output:
+
+```text
+All ALU tests passed.
+```
+
+Use these when you edit a specific block.
+
+---
+
+## Core smoke test
+
+Use:
+
+```text
+tb_rv32_core
+```
+
+This runs a small end-to-end CPU program and checks final register/memory values.
+
+Recommended command:
+
+```tcl
+set_property top tb_rv32_core [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run all
+```
+
+This test should end with:
+
+```text
+All RV32 core tests passed.
 ```
 
 ---
 
-## 8. Testbench timeout pattern
+## Visual/debug run
 
-Every testbench should either finish successfully with `$finish` or fail with `$fatal`.
+Use:
 
-Use this pattern to prevent silent hangs:
+```text
+tb_rv32_core_debug
+```
+
+This is for understanding what the assembly program does. It prints a per-instruction trace and final register/data-memory dumps.
+
+Before running it, build the assembly program:
+
+```bash
+./scripts/asm_to_hex.sh core_basic
+```
+
+Then in Vivado:
+
+```tcl
+set_property top tb_rv32_core_debug [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run all
+```
+
+Expected output style:
+
+```text
+CYCLE 0
+  PC=00000000 INSTR=00500093
+  rs1=x0 value=00000000 | rs2=x5 value=00000000 | rd=x1
+  imm=00000005 alu_y=00000005 wb_data=00000005
+  REG WRITE: x1 <= 00000005
+
+REGISTER FILE DUMP
+x0 = 00000000
+x1 = 00000005
+...
+
+DATA MEMORY DUMP
+mem[0] byte_addr=00000000 word=00000000
+...
+```
+
+This testbench is not mainly a pass/fail test. It is a visibility tool.
+
+---
+
+## Full functional regression
+
+Use:
+
+```text
+tb_rv32_core_regression
+```
+
+This is the broadest simulation test. It covers:
+
+- RV32I ALU register instructions
+- RV32I ALU immediate instructions
+- LUI and AUIPC
+- loads and stores
+- signed and unsigned load extension
+- branches
+- JAL and JALR
+- x0 behavior
+- FENCE behavior
+- ECALL/EBREAK halt/trap behavior
+- illegal instruction traps
+- misaligned access traps
+- negative immediates
+- backward branch stress loop
+
+Run this explicitly, not as part of a wildcard script:
+
+```tcl
+set_property top tb_rv32_core_regression [get_filesets sim_1]
+launch_simulation -simset sim_1 -mode behavioral
+run 20ms
+```
+
+Expected final output:
+
+```text
+ALL RV32 CORE REGRESSION TESTS PASSED
+```
+
+Run this after meaningful CPU changes, not after every tiny edit.
+
+---
+
+## If Vivado/XSim gets stuck compiling
+
+If the log shows something like:
+
+```text
+xvlog --incr --relax ...
+```
+
+then Vivado is still compiling/analyzing SystemVerilog. The CPU is not running yet.
+
+This can happen if `sim_1` contains many large testbenches, especially the regression testbench, while you only wanted to run the debug test.
+
+If XSim will not stop from the GUI, terminate simulator processes from Linux:
+
+```bash
+ps aux | egrep "xvlog|xelab|xsim" | grep -v grep
+pkill -TERM -f xvlog
+pkill -TERM -f xelab
+pkill -TERM -f xsim
+```
+
+If necessary:
+
+```bash
+pkill -KILL -f xvlog
+pkill -KILL -f xelab
+pkill -KILL -f xsim
+```
+
+Then clean the generated simulation directory if needed:
+
+```bash
+rm -rf <VIVADO_PROJECT_DIR>/<PROJECT_NAME>.sim/sim_1/behav/xsim
+```
+
+Reopen Vivado or relaunch simulation.
+
+---
+
+## Recommended targeted simulation setup
+
+For faster debug cycles, keep only the testbench you are actively running in `sim_1`.
+
+Example for the debug testbench:
+
+```tcl
+cd <REPO_ROOT>
+
+remove_files [get_files -quiet ./sim/tb_*.sv]
+add_files -fileset sim_1 ./sim/tb_rv32_core_debug.sv
+
+source refresh_sources.tcl
+set_property source_mgmt_mode None [current_project]
+set_property top tb_rv32_core_debug [get_filesets sim_1]
+update_compile_order -fileset sources_1
+update_compile_order -fileset sim_1
+launch_simulation -simset sim_1 -mode behavioral
+run all
+```
+
+If `refresh_sources.tcl` re-adds every testbench and that becomes slow, manually add only the needed simulation file while debugging.
+
+---
+
+## Program loading with `$readmemh`
+
+`fiu.sv` and `lsu.sv` support initialization files:
 
 ```systemverilog
-logic done;
-
-initial begin
-  done = 1'b0;
-
-  // Test sequence goes here.
-  // If all checks pass:
-
-  done = 1'b1;
-  $finish;
-end
-
-initial begin
-  #1000;
-  if (!done) begin
-    $display("TIMEOUT: testbench did not finish.");
-    $fatal;
-  end
-end
+parameter string INIT_FILE = ""
 ```
 
-The `done` flag is important. Without it, the timeout block can falsely fire after the test has already passed.
+The core passes these parameters down:
+
+```systemverilog
+parameter string IMEM_INIT_FILE = ""
+parameter string DMEM_INIT_FILE = ""
+```
+
+Instruction memory is loaded from:
+
+```text
+programs/<program>.hex
+```
+
+Each line is one 32-bit instruction word:
+
+```text
+00500093
+00700113
+002081b3
+00100073
+```
+
+`$readmemh` reads text hex, not raw `.bin` files. The Python script converts raw little-endian binary bytes into word-oriented hex lines.
 
 ---
 
-## 9. Current modules
+## Common issue: changed assembly but old program still runs
 
-### 9.1 ALU
+If the old program still runs after editing assembly:
 
-File:
+1. Rebuild the hex:
 
-```text
-src/alu.sv
+```bash
+./scripts/asm_to_hex.sh core_basic
+cat programs/core_basic.hex
 ```
 
-The ALU is combinational. It has no clock and stores no state.
+2. Confirm the testbench points at the correct file:
 
-It supports the RV32I arithmetic and logic operations needed for:
-
-```text
-add, addi
-sub
-and, andi
-or, ori
-xor, xori
-sll, slli
-srl, srli
-sra, srai
-slt, slti
-sltu, sltiu
+```systemverilog
+.IMEM_INIT_FILE ("<REPO_ROOT>/programs/core_basic.hex")
 ```
 
-It also supports address calculation for loads and stores through addition.
-
-Testbench:
-
-```text
-sim/tb_alu.sv
-```
-
-Expected success message:
-
-```text
-All ALU tests passed.
-```
-
----
-
-### 9.2 Register file
-
-File:
-
-```text
-src/regfile.sv
-```
-
-The register file implements the RV32I integer registers:
-
-```text
-x0 through x31
-```
-
-Required behavior:
-
-- 32 registers
-- 32 bits per register
-- two combinational read ports
-- one clocked write port
-- active-low reset: `rst_n = 0` means reset is active
-- `x0` always reads as zero
-- writes to `x0` are ignored
-
-The reads are combinational because reading only selects existing stored values. Writes are clocked because writing changes architectural CPU state and must only commit on a controlled clock edge.
-
-Testbench:
-
-```text
-sim/tb_regfile.sv
-```
-
-Expected success message:
-
-```text
-All register file tests passed.
-```
-
----
-
-## 10. Adding a new module
-
-For each new CPU block:
-
-1. Add the synthesizable design file to `src/`.
-2. Add the matching testbench to `sim/`.
-3. Add the new testbench to `run_tests.tcl`.
-4. Run the full test suite.
-5. Do not move on until all existing tests still pass.
-
-Example for an immediate generator:
-
-```text
-src/imm_gen.sv
-sim/tb_imm_gen.sv
-```
-
-Then add this to `run_tests.tcl`:
+3. Close and relaunch simulation:
 
 ```tcl
-run_tb tb_imm_gen
+close_sim
+launch_simulation -simset sim_1 -mode behavioral
+run all
 ```
 
-Run:
+`$readmemh` runs at simulation start. Editing the file while a simulation is already running does not update `fiu.mem`.
+
+---
+
+## Common issue: Vivado shows old SystemVerilog contents
+
+Vivado may be using a copied file instead of the one you edited.
+
+Check the path of the file Vivado opened. It should be under:
+
+```text
+<REPO_ROOT>/src/
+<REPO_ROOT>/sim/
+```
+
+If it is under a generated Vivado project directory, remove that stale file from the project and re-add the real source file from the repository.
+
+Tcl example:
 
 ```tcl
-source run_tests.tcl
+remove_files [get_files -quiet -all *rv32_core.sv]
+add_files -fileset sources_1 ./src/rv32_core.sv
+update_compile_order -fileset sources_1
 ```
 
 ---
 
-## 11. Development order
+## Suggested development workflow
 
-Build and verify the CPU incrementally:
-
-1. `alu.sv` — arithmetic/logic unit
-2. `regfile.sv` — integer register file
-3. `imm_gen.sv` — immediate generator
-4. `decoder.sv` — instruction decoder and control generation
-5. simple instruction/data memory for simulation
-6. `rv32_core.sv` — first integrated CPU core
-7. small assembly programs in simulated memory
-8. memory-mapped UART model
-9. FPGA top-level wrapper
-10. external SRAM controller
-11. M extension: multiply/divide
-12. C extension: compressed instructions
-
-Avoid starting with pipelining, caches, Linux, privileged mode, or compressed instructions. Get a simple RV32I core working first.
-
----
-
-## 12. Normal workflow
-
-After editing files:
+For a normal hardware edit:
 
 ```text
-1. Save all files in your editor.
-2. In Vivado Tcl Console, run: cd <REPO_ROOT>
-3. Run: source run_tests.tcl
-4. Fix the first failing test, if any.
-5. Repeat until all tests pass.
+1. Edit one module in src/.
+2. Run its unit testbench.
+3. Run tb_rv32_core if the module affects the integrated core.
+4. Run tb_rv32_core_debug if you want to inspect behavior.
+5. Run tb_rv32_core_regression before considering the change safe.
 ```
 
-To debug only one testbench, temporarily comment out the others in `run_tests.tcl`:
+For an assembly program edit:
 
-```tcl
-run_tb tb_alu
-# run_tb tb_regfile
-# run_tb tb_imm_gen
+```text
+1. Edit asm/<program>.S.
+2. Run scripts/asm_to_hex.sh <program>.
+3. Confirm programs/<program>.hex changed.
+4. Close and relaunch simulation.
+5. Run tb_rv32_core_debug to observe behavior.
 ```
 
 ---
 
-## 13. Common Vivado messages
+## Current limitations
 
-### File already exists warning
+This project is not finished CPU hardware yet.
 
-```text
-File '...' cannot be added to the project because it already exists in the project, skipping this file
-```
+Current limitations include:
 
-This is usually harmless. It means `refresh_sources.tcl` tried to add a file that Vivado already knows about.
+- no FPGA top-level module yet
+- no Cmod A7 constraints yet
+- no external SRAM controller yet
+- no UART or memory-mapped I/O yet
+- no interrupt/CSR subsystem beyond simple ECALL/EBREAK trap handling
+- no M extension yet
+- no C compressed instruction support yet
+- no pipelining yet
+- no official RISC-V compliance-suite integration yet
 
-### On-the-fly syntax checking warning
-
-```text
-Attempt to get parsing info during refresh. "On-the-fly" syntax checking information may be incorrect.
-```
-
-Usually harmless while Vivado is refreshing sources or launching simulations.
-
-### Environment variable warning
-
-```text
-One or more environment variables have been detected which affect the operation of the C compiler
-```
-
-Usually harmless unless elaboration or simulation fails. If simulation works, ignore it for now.
-
-### Board part warnings at startup
-
-Warnings about unrelated board parts are usually harmless if your project FPGA part is set correctly.
-
-Check the project part in Vivado if synthesis or implementation fails.
+The current milestone is a working simulation-level RV32I core with meaningful visibility and functional regression testing.
 
 ---
 
-## 14. Current success criteria
+## Next likely steps
 
-The project is healthy if:
-
-```tcl
-source run_tests.tcl
-```
-
-prints:
+Recommended next milestones:
 
 ```text
-All ALU tests passed.
-All register file tests passed.
-All requested testbenches completed.
+1. Clean up simulation workflow with explicit per-test commands.
+2. Add more assembly programs under asm/.
+3. Add memory-mapped debug output, such as a simple UART-like simulation peripheral.
+4. Add a real FPGA top module.
+5. Add Cmod A7 constraints.
+6. Decide how program memory/data memory will map to FPGA block RAM or external SRAM.
+7. Start preparing for synthesis.
 ```
 
-and does not print:
-
-```text
-FAIL
-Fatal
-TIMEOUT
-```
-
----
-
-## 15. Next module
-
-The next logical module is:
-
-```text
-src/imm_gen.sv
-sim/tb_imm_gen.sv
-```
-
-The immediate generator extracts and sign-extends constants from RISC-V instructions. It is needed for instructions such as:
-
-```text
-addi
-slti
-sltiu
-andi
-ori
-xori
-lw
-sw
-beq
-jal
-jalr
-lui
-auipc
-```
-
-After `imm_gen.sv` passes its tests, move to the decoder.
+Do not move to FPGA until the simulation debug and regression workflows are comfortable.

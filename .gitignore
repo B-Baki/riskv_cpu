@@ -1,5 +1,6 @@
 # Vivado generated project (regenerate from refresh_sources.tcl)
 vivado_proj/
+risky/
 
 # Vivado / xvlog / xsim logs and runtime junk
 *.jou
