@@ -381,28 +381,6 @@ If needed, remove stale files from the project and re-add the real files.
 
 ---
 
-## Simulation philosophy
-
-Do **not** run every `tb_*.sv` automatically in one big wildcard script anymore.
-
-That was useful early in the project, but it is no longer the right workflow because:
-
-- some testbenches are small unit tests,
-- some are full-core tests,
-- the regression test is intentionally long,
-- the debug testbench is meant for human inspection,
-- Vivado may still compile every file in `sim_1`, which can make debug runs unnecessarily slow.
-
-The recommended workflow is now:
-
-```text
-Choose one testbench intentionally.
-Set it as the simulation top.
-Run only that test.
-```
-
----
-
 ## Running one specific testbench
 
 In Vivado Tcl Console:
