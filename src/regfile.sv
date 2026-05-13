@@ -11,12 +11,16 @@ module regfile (
 
     input logic        we,
     input logic [ 4:0] rd_addr,
-    input logic [31:0] rd_data
+    input logic [31:0] rd_data,
+
+    output logic [31:0] debug_x3
 );
 
   logic [31:0] regs[31:0];
 
   integer i;
+
+  assign debug_x3 = regs[5'd3];
 
   //write
   always_ff @(posedge clk) begin

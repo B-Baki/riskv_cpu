@@ -16,7 +16,9 @@ module rv32_core #(
     output logic [31:0] instr,
 
     output logic        halted,
-    output logic        trap
+    output logic        trap,
+
+    output logic [31:0] debug_x3
 );
 
   // ------------------------------------------------------------
@@ -162,7 +164,9 @@ module rv32_core #(
 
       .we       (reg_write && !halt_pending && !halted),
       .rd_addr  (rd_addr),
-      .rd_data  (wb_data)
+      .rd_data  (wb_data),
+
+      .debug_x3 (debug_x3)
   );
 
   // ------------------------------------------------------------
@@ -240,7 +244,6 @@ module rv32_core #(
   );
 
   assign data_access_misaligned = (mem_read || mem_write) && data_misaligned;
-
   // ------------------------------------------------------------
   // Writeback mux
   // ------------------------------------------------------------

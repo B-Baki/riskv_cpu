@@ -40,6 +40,8 @@ module lsu #(
     end
   end
 
+
+  //read
   always_comb begin
     read_data  = 32'h0000_0000;
     misaligned = 1'b0;
@@ -94,6 +96,8 @@ module lsu #(
     endcase
   end
 
+
+  //write
   always_ff @(posedge clk) begin
     if (mem_write && !misaligned) begin
       case (mem_size)
