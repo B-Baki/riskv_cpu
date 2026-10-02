@@ -104,16 +104,6 @@ build/         generated ELF/bin/dump
 
 ---
 
-## Skills this demonstrates
-
-- Computer architecture: single-cycle RV32I microarchitecture from the ISA up
-- HDL design in SystemVerilog with clean module boundaries
-- Verification: directed unit tests + integrated regression
-- Tooling: bare-metal RISC-V asm, custom linker, memory image generation
-- FPGA bring-up awareness (top-level, constraints, status LEDs)
-
----
-
 ## Current scope / non-goals
 
 Implemented for simulation and a minimal FPGA smoke test. **Not** included yet: external SRAM controller, UART / MMIO peripherals, CSRs beyond simple trap/halt, M or C extensions, pipelining, or official RISC-V compliance-suite integration.
