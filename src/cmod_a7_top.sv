@@ -35,7 +35,8 @@ module cmod_a7_top (
       .RESET_PC       (32'h0000_0000),
       .IMEM_WORDS     (64),
       .DMEM_WORDS     (64),
-      .IMEM_INIT_FILE ("/home/baki/projects/riskv_cpu/programs/core_basic.hex"),
+      // Repo-relative path; override with an absolute path if Vivado cwd differs.
+      .IMEM_INIT_FILE ("programs/core_basic.hex"),
       .DMEM_INIT_FILE ("")
   ) u_core (
       .clk    (sysclk),

@@ -18,7 +18,7 @@ module tb_rv32_core;
       .RESET_PC   (32'h0000_0000),
       .IMEM_WORDS (64),
       .DMEM_WORDS (64),
-      .IMEM_INIT_FILE ("/home/baki/projects/riskv_cpu/programs/core_basic.hex"),
+      .IMEM_INIT_FILE ("programs/core_basic.hex"),  // relative to sim/Vivado cwd (repo root)
       .DMEM_INIT_FILE ("")
   ) dut (
       .clk    (clk),

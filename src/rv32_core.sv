@@ -4,7 +4,9 @@ module rv32_core #(
     parameter logic [31:0] RESET_PC   = 32'h0000_0000,
     parameter int          IMEM_WORDS = 1024,
     parameter int          DMEM_WORDS = 1024,
-    parameter string       IMEM_INIT_FILE = "/home/baki/projects/riskv_cpu/programs/core_basic.hex",
+    // Default empty: testbenches / FPGA top must pass a path. $readmemh
+    // resolves relative to the simulator or Vivado working directory.
+    parameter string       IMEM_INIT_FILE = "",
     parameter string       DMEM_INIT_FILE = ""
 ) (
     input  logic        clk,
